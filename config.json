@@ -1,0 +1,54 @@
+{
+  "demo": {
+    "description": "Demo configuration for the seat booking system",
+    "features": [
+      "10x10 seat grid (100 total seats)",
+      "7 time slots per day",
+      "Date selection (today and future)",
+      "Customer information collection",
+      "Google Sheets integration",
+      "Email confirmations",
+      "Local storage backup",
+      "Responsive design"
+    ],
+    "sampleBooking": {
+      "date": "2024-12-01",
+      "timeSlot": "09:00-10:00",
+      "seats": "A1, A2, B1",
+      "customerName": "John Doe",
+      "customerEmail": "john@example.com",
+      "customerPhone": "+1234567890",
+      "totalSeats": 3
+    }
+  },
+  "googleAppsScript": {
+    "url": "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec",
+    "note": "Replace YOUR_SCRIPT_ID with your actual Google Apps Script deployment ID"
+  },
+  "timeSlots": [
+    "09:00-10:00",
+    "10:30-11:30",
+    "12:00-13:00",
+    "14:00-15:00",
+    "15:30-16:30",
+    "17:00-18:00",
+    "19:00-20:00"
+  ],
+  "seatConfiguration": {
+    "rows": 5,
+    "seatsPerRow": 2,
+    "totalSeats": 10,
+    "seatLabeling": "A1-J10 (Letter-Number format)"
+  },
+  "googleSheetsColumns": [
+    "Timestamp",
+    "Date",
+    "Time Slot",
+    "Seats",
+    "Total Seats",
+    "Customer Name",
+    "Customer Email",
+    "Customer Phone",
+    "Status"
+  ]
+}
