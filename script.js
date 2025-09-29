@@ -646,17 +646,44 @@ async function syncAllBookingsFromGoogleSheets() {
         console.log('Syncing all bookings from Google Sheets...');
         showStatusMessage('Loading latest booking data...', 'info');
 
-        const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getAllBookings`, {
-            method: 'GET',
-            mode: 'cors'
-        });
+        // Try getAllBookings first, then fall back to getBookings for compatibility
+        let response;
+        let result;
+        
+        try {
+            console.log('Trying getAllBookings action...');
+            response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getAllBookings`, {
+                method: 'GET',
+                mode: 'cors'
+            });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+            }
+
+            result = await response.json();
+            console.log('getAllBookings response:', result);
+            
+            // If getAllBookings fails, try the old getBookings action
+            if (!result.success && result.error && result.error.includes('Invalid action')) {
+                console.log('getAllBookings not supported, trying getBookings...');
+                
+                response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getBookings`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                }
+
+                result = await response.json();
+                console.log('getBookings response:', result);
+            }
+        } catch (fetchError) {
+            console.error('Fetch error:', fetchError);
+            throw fetchError;
         }
-
-        const result = await response.json();
-        console.log('Google Sheets response:', result);
         
         if (result.success && result.bookings) {
             // Clear existing seat status
@@ -979,6 +1006,34 @@ async function updateSeatGridWithSync() {
                 statusEl.className = 'status-message';
             }
         }, 1000);
+    }
+}
+
+// Debug function to test Google Apps Script endpoints
+async function debugGoogleAppsScript() {
+    if (GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
+        console.log('Google Apps Script URL not configured');
+        return;
+    }
+
+    console.log('Testing Google Apps Script endpoints...');
+    console.log('Using URL:', GOOGLE_SCRIPT_URL);
+
+    const actions = ['getAllBookings', 'getBookings', 'test'];
+    
+    for (const action of actions) {
+        try {
+            console.log(`Testing action: ${action}`);
+            const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}`, {
+                method: 'GET',
+                mode: 'cors'
+            });
+            
+            const result = await response.json();
+            console.log(`${action} result:`, result);
+        } catch (error) {
+            console.error(`${action} error:`, error);
+        }
     }
 }
 
