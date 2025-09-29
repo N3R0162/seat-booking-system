@@ -16,9 +16,8 @@ const PREDEFINED_EVENT_DATE = ''; // Leave empty when using multi-day
 
 // Location Configuration
 const EVENT_LOCATIONS = [
-    { id: 'main-hall', name: 'Main Concert Hall', capacity: 500 },
-    { id: 'studio-a', name: 'Studio A', capacity: 100 },
-    { id: 'outdoor-stage', name: 'Outdoor Stage', capacity: 300 }
+    { id: '99', name: 'Phòng máy 99', capacity: 10 },
+    { id: '245', name: 'Phòng máy 245', capacity: 10 },
 ]; // Leave empty array [] for no location selection
 
 // Examples:
