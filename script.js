@@ -10,7 +10,7 @@ const MAX_SEATS_PER_ROW = 10;
 // const EVENT_NAME = 'Spring Musical Performance';
 
 // For multi-day events:
-const PREDEFINED_EVENT_DATES = ['2025-10-01', '2025-10-02', '2025-10-03', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-07', '2025-10-08', '2025-10-09']; // Multiple dates array
+const PREDEFINED_EVENT_DATES = ['2025-10-01', '2025-10-02', '2025-10-03', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-07', '2025-10-08', '2025-10-09', '']; // Multiple dates array
 const EVENT_NAME = ''; // Name for multi-day event
 const PREDEFINED_EVENT_DATE = ''; // Leave empty when using multi-day
 
@@ -44,11 +44,16 @@ let currentLocation = '';
 let seatStatus = {}; // Store seat status for different sessions, dates, and locations
 
 // Initialize the application
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     generateSeatGrid();
     setupLocationSelector();
     setMinDate();
+    
+    // Load local data first as fallback
     loadSeatData();
+    
+    // Then sync from Google Sheets to get latest data
+    await syncAllBookingsFromGoogleSheets();
 });
 
 // Set minimum date to today or use predefined event date(s)
@@ -630,6 +635,91 @@ function loadSeatData() {
     }
 }
 
+// Comprehensive sync function to load all bookings from Google Sheets
+async function syncAllBookingsFromGoogleSheets() {
+    try {
+        if (GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
+            console.log('Demo mode - using localStorage data');
+            return;
+        }
+
+        console.log('Syncing all bookings from Google Sheets...');
+        showStatusMessage('Loading latest booking data...', 'info');
+
+        const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getBookings`, {
+            method: 'GET',
+            mode: 'cors'
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.success && result.bookings) {
+            // Clear existing seat status
+            seatStatus = {};
+            
+            // Process each booking to rebuild seat status
+            result.bookings.forEach(booking => {
+                const sessionKey = `${booking.eventdate}_${booking.timeslot}_${booking.locationid}`;
+                
+                if (!seatStatus[sessionKey]) {
+                    seatStatus[sessionKey] = [];
+                }
+                
+                // Parse seats (e.g., "A1, A2, B3")
+                if (booking.selectedseats) {
+                    const seats = booking.selectedseats.split(',').map(seat => seat.trim());
+                    seatStatus[sessionKey].push(...seats);
+                }
+            });
+            
+            // Remove duplicates from each session
+            Object.keys(seatStatus).forEach(key => {
+                seatStatus[key] = [...new Set(seatStatus[key])];
+            });
+            
+            // Save updated data to localStorage as backup
+            saveSeatData();
+            
+            console.log('Successfully synced', result.bookings.length, 'bookings from Google Sheets');
+            console.log('Seat status updated:', seatStatus);
+            
+            // Update current view if date/time is selected
+            if (currentDate && currentSession) {
+                updateSeatGrid();
+            }
+            
+            // Clear loading message
+            setTimeout(() => {
+                const statusEl = document.getElementById('statusMessage');
+                if (statusEl && statusEl.textContent.includes('Loading latest booking data')) {
+                    statusEl.textContent = '';
+                    statusEl.className = 'status-message';
+                }
+            }, 2000);
+            
+        } else {
+            throw new Error('Failed to get bookings data');
+        }
+        
+    } catch (error) {
+        console.error('Error syncing bookings from Google Sheets:', error);
+        console.log('Falling back to localStorage data');
+        
+        // Clear loading message and show warning
+        setTimeout(() => {
+            const statusEl = document.getElementById('statusMessage');
+            if (statusEl && statusEl.textContent.includes('Loading latest booking data')) {
+                statusEl.textContent = '';
+                statusEl.className = 'status-message';
+            }
+        }, 1000);
+    }
+}
+
 // Load booking data from Google Sheets (optional feature)
 async function loadBookingsFromGoogleSheets() {
     try {
@@ -818,36 +908,51 @@ async function updateSeatGridWithSync() {
 
     try {
         // Show loading indicator
-        showStatusMessage('Loading seat availability...', 'info');
+        showStatusMessage('Checking latest seat availability...', 'info');
 
-        // Sync booked seats from Google Sheets
+        // Always sync booked seats from Google Sheets for current selection
         const syncedBookedSeats = await syncBookedSeatsFromGoogleSheets(currentDate, currentSession, currentLocation);
         
-        // Merge with local data
+        // Update local storage with synced data
         const sessionKey = `${currentDate}_${currentSession}_${currentLocation}`;
-        const localBookedSeats = seatStatus[sessionKey] || [];
         
-        // Combine and deduplicate
-        const allBookedSeats = [...new Set([...localBookedSeats, ...syncedBookedSeats])];
+        if (syncedBookedSeats.length > 0) {
+            // Use synced data as the source of truth
+            seatStatus[sessionKey] = [...new Set(syncedBookedSeats)];
+            console.log(`Synced ${syncedBookedSeats.length} booked seats from Google Sheets for ${sessionKey}`);
+        } else {
+            // If no synced data, keep existing local data but warn user
+            const localBookedSeats = seatStatus[sessionKey] || [];
+            console.log(`No synced data available, using local data: ${localBookedSeats.length} seats`);
+        }
         
-        // Update local storage
-        seatStatus[sessionKey] = allBookedSeats;
+        // Save updated data
         saveSeatData();
 
         // Update seat grid display
         updateSeatGrid();
         
         // Clear loading message
-        document.getElementById('statusMessage').textContent = '';
-        
-        if (syncedBookedSeats.length > 0) {
-            console.log(`Synced ${syncedBookedSeats.length} booked seats from Google Sheets`);
-        }
+        setTimeout(() => {
+            const statusEl = document.getElementById('statusMessage');
+            if (statusEl && statusEl.textContent.includes('Checking latest seat availability')) {
+                statusEl.textContent = '';
+                statusEl.className = 'status-message';
+            }
+        }, 1000);
         
     } catch (error) {
         console.error('Error updating seat grid with sync:', error);
         updateSeatGrid(); // Fallback to local data
-        document.getElementById('statusMessage').textContent = '';
+        
+        // Clear loading message
+        setTimeout(() => {
+            const statusEl = document.getElementById('statusMessage');
+            if (statusEl && statusEl.textContent.includes('Checking latest seat availability')) {
+                statusEl.textContent = '';
+                statusEl.className = 'status-message';
+            }
+        }, 1000);
     }
 }
 
