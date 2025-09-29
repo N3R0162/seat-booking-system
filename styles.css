@@ -477,6 +477,13 @@ h1 {
     box-shadow: 0 4px 15px rgba(144, 205, 244, 0.3);
 }
 
+.status-message.warning {
+    background: linear-gradient(135deg, #fef5e7, #fed7aa);
+    color: #9c4221;
+    border: 1px solid #fed7aa;
+    box-shadow: 0 4px 15px rgba(254, 215, 170, 0.3);
+}
+
 /* Responsive Design */
 @media (max-width: 1020px) {
     .header-and-form-row {
