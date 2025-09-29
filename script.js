@@ -54,88 +54,97 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Then sync from Google Sheets to get latest data
     await syncAllBookingsFromGoogleSheets();
-    
-    // Initialize current values from form elements after everything is set up
-    const bookingDateElement = document.getElementById('bookingDate');
-    const sessionElement = document.getElementById('sessionSelect');
-    const locationElement = document.getElementById('locationSelect');
-    
-    if (bookingDateElement && bookingDateElement.value) {
-        currentDate = bookingDateElement.value;
-    }
-    if (sessionElement && sessionElement.value) {
-        currentSession = sessionElement.value;
-    }
-    if (locationElement && locationElement.value) {
-        currentLocation = locationElement.value;
-    }
-    
-    console.log('Initialized values:', { currentDate, currentSession, currentLocation });
-    
-    // Add event listeners for form changes
-    if (sessionElement) {
-        sessionElement.addEventListener('change', function() {
-            currentSession = this.value;
-            selectedSeat = null; // Clear selected seat when session changes
-            handleSelectionChange();
-        });
-    }
-    
-    if (locationElement) {
-        locationElement.addEventListener('change', function() {
-            currentLocation = this.value;
-            selectedSeat = null; // Clear selected seat when location changes
-            handleSelectionChange();
-        });
-    }
-    
-    // Update seat grid with initial values
-    if (currentDate && currentSession) {
-        updateSeatGridWithSync();
-    }
 });
 
 // Set minimum date to today or use predefined event date(s)
 function setMinDate() {
     const bookingDateElement = document.getElementById('bookingDate');
     
+    // Clear existing options first
+    bookingDateElement.innerHTML = '<option value="">Choose a date...</option>';
+    
     // Check for multi-day event first
     if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
         // Multi-day event configuration
         const sortedDates = [...PREDEFINED_EVENT_DATES].sort();
-        const firstDate = sortedDates[0];
-        const lastDate = sortedDates[sortedDates.length - 1];
         
-        bookingDateElement.value = firstDate;
-        bookingDateElement.min = firstDate;
-        bookingDateElement.max = lastDate;
-        bookingDateElement.disabled = false; // Enable for multi-day selection
+        // Populate dropdown with available dates
+        sortedDates.forEach(date => {
+            const option = document.createElement('option');
+            option.value = date;
+            
+            // Format date for display (e.g., "October 8, 2025")
+            const dateObj = new Date(date + 'T00:00:00');
+            const formattedDate = dateObj.toLocaleDateString('en-US', { 
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            option.textContent = formattedDate;
+            bookingDateElement.appendChild(option);
+        });
+        
+        // Set first date as default if no selection
+        if (!bookingDateElement.value) {
+            bookingDateElement.value = sortedDates[0];
+        }
+        
+        bookingDateElement.disabled = false;
         bookingDateElement.classList.add('event-enabled');
         
-        // Update the label to show event name and add styling
+        // Update the label to show event name
         const dateLabel = document.querySelector('label[for="bookingDate"]');
         if (dateLabel) {
             dateLabel.textContent = `Select Event Date:`;
             dateLabel.classList.add('event-label');
         }
         
-        // Add change listener to validate selected date
-        bookingDateElement.addEventListener('change', validateEventDate);
+        // Add change listener to validate selected date and update seats
+        bookingDateElement.addEventListener('change', function() {
+            // If user selects a valid date, update seats immediately
+            if (this.value && this.value !== '') {
+                validateEventDate();
+                handleSelectionChange();
+            }
+        });
         
-        // Auto-update seat grid
+        // Add focus listener to handle first click
+        bookingDateElement.addEventListener('focus', function() {
+            // If no date is selected and user focuses on dropdown, auto-select first date
+            if (!this.value || this.value === '') {
+                this.value = sortedDates[0];
+                // Trigger change event
+                this.dispatchEvent(new Event('change'));
+            }
+        });
+        
+        // Auto-update seat grid after initialization
         setTimeout(() => {
             updateSeatGrid();
         }, 100);
         
     } else if (PREDEFINED_EVENT_DATE) {
         // Single-day event configuration
-        bookingDateElement.value = PREDEFINED_EVENT_DATE;
-        bookingDateElement.min = PREDEFINED_EVENT_DATE;
-        bookingDateElement.max = PREDEFINED_EVENT_DATE;
+        const option = document.createElement('option');
+        option.value = PREDEFINED_EVENT_DATE;
+        
+        // Format date for display
+        const dateObj = new Date(PREDEFINED_EVENT_DATE + 'T00:00:00');
+        const formattedDate = dateObj.toLocaleDateString('en-US', { 
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        option.textContent = formattedDate;
+        option.selected = true;
+        bookingDateElement.appendChild(option);
+        
         bookingDateElement.disabled = true;
         bookingDateElement.classList.remove('event-enabled');
         
-        // Update the label to show event name and add styling
+        // Update the label to show event name
         const dateLabel = document.querySelector('label[for="bookingDate"]');
         if (dateLabel) {
             if (EVENT_NAME) {
@@ -151,10 +160,34 @@ function setMinDate() {
             updateSeatGrid();
         }, 100);
     } else {
-        // Normal date selection - set minimum to today
-        const today = new Date().toISOString().split('T')[0];
-        bookingDateElement.value = today;
-        bookingDateElement.min = today;
+        // Normal date selection - populate with next 30 days
+        const today = new Date();
+        
+        for (let i = 0; i < 30; i++) {
+            const date = new Date(today);
+            date.setDate(today.getDate() + i);
+            
+            const option = document.createElement('option');
+            const dateStr = date.toISOString().split('T')[0];
+            option.value = dateStr;
+            
+            // Format date for display
+            const formattedDate = date.toLocaleDateString('en-US', { 
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            option.textContent = formattedDate;
+            
+            // Set today as default
+            if (i === 0) {
+                option.selected = true;
+            }
+            
+            bookingDateElement.appendChild(option);
+        }
+        
         bookingDateElement.disabled = false;
         bookingDateElement.classList.remove('event-enabled');
         
@@ -172,6 +205,12 @@ function validateEventDate() {
     const bookingDateElement = document.getElementById('bookingDate');
     const selectedDate = bookingDateElement.value;
     
+    // If no date selected, don't update grid yet
+    if (!selectedDate || selectedDate === '') {
+        console.log('No date selected yet');
+        return false;
+    }
+    
     if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
         if (!PREDEFINED_EVENT_DATES.includes(selectedDate)) {
             // Reset to first available date if invalid date selected
@@ -183,10 +222,9 @@ function validateEventDate() {
         }
     }
     
-    // Update current date and seat grid when date changes
-    currentDate = selectedDate;
-    selectedSeat = null; // Clear selected seat when date changes
-    handleSelectionChange(); // Use the sync version
+    console.log('Valid date selected:', selectedDate);
+    // Update seat grid when date changes
+    updateSeatGrid();
     return true;
 }
 
@@ -313,12 +351,18 @@ function updateSeatGrid() {
     // Update seat status based on current session, date, and location
     const sessionKey = `${bookingDate}_${timeSlot}_${selectedLocation}`;
     const bookedSeats = seatStatus[sessionKey] || [];
+    
+    console.log('updateSeatGrid called with:', { bookingDate, timeSlot, selectedLocation });
+    console.log('Looking for session key:', sessionKey);
+    console.log('Available session keys:', Object.keys(seatStatus));
+    console.log('Booked seats for this session:', bookedSeats);
 
     const seats = document.querySelectorAll('.seat');
     seats.forEach(seat => {
         const seatId = seat.id;
         if (bookedSeats.includes(seatId)) {
             seat.className = 'seat booked';
+            console.log(`Seat ${seatId} marked as booked`);
         } else {
             seat.className = 'seat available';
         }
@@ -735,24 +779,32 @@ async function syncAllBookingsFromGoogleSheets() {
             // Process each booking to rebuild seat status
             result.bookings.forEach((booking, index) => {
                 // Handle different property name formats from Google Sheets
-                let eventDate = booking.eventdate || booking['Event Date'] || '';
+                const eventDate = booking.eventdate || booking['Event Date'] || '';
                 const timeSlot = booking.timeslot || booking['Time Slot'] || '';
                 const locationId = booking.locationid || booking['Location ID'] || '';
                 const selectedSeats = booking.selectedseats || booking['Selected Seats'] || '';
                 const status = booking.status || booking['Status'] || '';
                 
-                // Fix date format - convert from ISO string to YYYY-MM-DD
+                // Convert ISO date to YYYY-MM-DD format
+                let formattedDate = eventDate;
                 if (eventDate && typeof eventDate === 'string' && eventDate.includes('T')) {
-                    eventDate = eventDate.split('T')[0];
+                    formattedDate = eventDate.split('T')[0];
                 } else if (eventDate instanceof Date) {
-                    eventDate = eventDate.toISOString().split('T')[0];
+                    formattedDate = eventDate.toISOString().split('T')[0];
                 }
                 
-                console.log(`Booking ${index + 1}:`, { eventDate, timeSlot, locationId, selectedSeats, status });
+                console.log(`Booking ${index + 1}:`, { 
+                    originalDate: eventDate, 
+                    formattedDate, 
+                    timeSlot, 
+                    locationId, 
+                    selectedSeats, 
+                    status 
+                });
                 
                 // Only process confirmed bookings
-                if (status === 'CONFIRMED' && eventDate && timeSlot && selectedSeats) {
-                    const sessionKey = `${eventDate}_${timeSlot}_${locationId}`;
+                if (status === 'CONFIRMED' && formattedDate && timeSlot && selectedSeats) {
+                    const sessionKey = `${formattedDate}_${timeSlot}_${locationId}`;
                     
                     if (!seatStatus[sessionKey]) {
                         seatStatus[sessionKey] = [];
@@ -778,9 +830,17 @@ async function syncAllBookingsFromGoogleSheets() {
             console.log(`Successfully synced ${result.bookings.length} bookings with ${totalSeats} total seats from Google Sheets`);
             console.log('Updated seat status:', seatStatus);
             
-            // Update current view if date/time is selected
+            // Force update current view if date/time is selected
             if (currentDate && currentSession) {
+                console.log('Forcing seat grid update after sync...');
                 updateSeatGrid();
+                
+                // Also update seat selection area to reflect changes
+                setTimeout(() => {
+                    if (selectedSeats.length > 0) {
+                        updateBookingForm();
+                    }
+                }, 100);
             }
             
             // Clear loading message

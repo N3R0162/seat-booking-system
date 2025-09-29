@@ -35,12 +35,6 @@
                                 </select>
                             </div>
 
-                            <!-- Date Selection -->
-                            <div class="date-selector">
-                                <label for="bookingDate">Select Date:</label>
-                                <input type="date" id="bookingDate" onchange="handleSelectionChange()">
-                            </div>
-
                             <!-- Location Selection -->
                             <div class="location-selector">
                                 <label for="locationSelect">Select Location:</label>
@@ -48,6 +42,15 @@
                                     <option value="">Choose a location...</option>
                                 </select>
                             </div>
+                            
+                            <!-- Date Selection -->
+                            <div class="date-selector">
+                                <label for="bookingDate">Select Date:</label>
+                                <select id="bookingDate" onchange="handleSelectionChange()">
+                                    <option value="">Choose a date...</option>
+                                </select>
+                            </div>
+
                         </div>
                         
                         <!-- Screen and Seat Selection -->
