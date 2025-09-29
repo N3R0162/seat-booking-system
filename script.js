@@ -54,6 +54,45 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Then sync from Google Sheets to get latest data
     await syncAllBookingsFromGoogleSheets();
+    
+    // Initialize current values from form elements after everything is set up
+    const bookingDateElement = document.getElementById('bookingDate');
+    const sessionElement = document.getElementById('sessionSelect');
+    const locationElement = document.getElementById('locationSelect');
+    
+    if (bookingDateElement && bookingDateElement.value) {
+        currentDate = bookingDateElement.value;
+    }
+    if (sessionElement && sessionElement.value) {
+        currentSession = sessionElement.value;
+    }
+    if (locationElement && locationElement.value) {
+        currentLocation = locationElement.value;
+    }
+    
+    console.log('Initialized values:', { currentDate, currentSession, currentLocation });
+    
+    // Add event listeners for form changes
+    if (sessionElement) {
+        sessionElement.addEventListener('change', function() {
+            currentSession = this.value;
+            selectedSeat = null; // Clear selected seat when session changes
+            handleSelectionChange();
+        });
+    }
+    
+    if (locationElement) {
+        locationElement.addEventListener('change', function() {
+            currentLocation = this.value;
+            selectedSeat = null; // Clear selected seat when location changes
+            handleSelectionChange();
+        });
+    }
+    
+    // Update seat grid with initial values
+    if (currentDate && currentSession) {
+        updateSeatGridWithSync();
+    }
 });
 
 // Set minimum date to today or use predefined event date(s)
@@ -144,8 +183,10 @@ function validateEventDate() {
         }
     }
     
-    // Update seat grid when date changes
-    updateSeatGrid();
+    // Update current date and seat grid when date changes
+    currentDate = selectedDate;
+    selectedSeat = null; // Clear selected seat when date changes
+    handleSelectionChange(); // Use the sync version
     return true;
 }
 
@@ -694,11 +735,18 @@ async function syncAllBookingsFromGoogleSheets() {
             // Process each booking to rebuild seat status
             result.bookings.forEach((booking, index) => {
                 // Handle different property name formats from Google Sheets
-                const eventDate = booking.eventdate || booking['Event Date'] || '';
+                let eventDate = booking.eventdate || booking['Event Date'] || '';
                 const timeSlot = booking.timeslot || booking['Time Slot'] || '';
                 const locationId = booking.locationid || booking['Location ID'] || '';
                 const selectedSeats = booking.selectedseats || booking['Selected Seats'] || '';
                 const status = booking.status || booking['Status'] || '';
+                
+                // Fix date format - convert from ISO string to YYYY-MM-DD
+                if (eventDate && typeof eventDate === 'string' && eventDate.includes('T')) {
+                    eventDate = eventDate.split('T')[0];
+                } else if (eventDate instanceof Date) {
+                    eventDate = eventDate.toISOString().split('T')[0];
+                }
                 
                 console.log(`Booking ${index + 1}:`, { eventDate, timeSlot, locationId, selectedSeats, status });
                 
