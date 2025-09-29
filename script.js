@@ -1,26 +1,163 @@
 // Configuration
-const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE'; // Replace with your actual Google Apps Script URL
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwTcN1Qqjlo6o5XxBo_E_az7xnFVms4HCpPJt18sGW_3dyPKvQH1VyosB3O4ZcO9v_C/exec'; // Replace with your actual Google Apps Script URL
 const ROWS = 10;
-const SEATS_PER_ROW = 10;
+const SEATS_PER_ROW = 1;
 const MAX_SEATS_PER_ROW = 10;
+
+// Event Configuration
+// For single-day events:
+// const PREDEFINED_EVENT_DATE = '2024-03-15'; // Single date
+// const EVENT_NAME = 'Spring Musical Performance';
+
+// For multi-day events:
+const PREDEFINED_EVENT_DATES = ['2025-10-01', '2025-10-02', '2025-10-03', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-07', '2025-10-08', '2025-10-09']; // Multiple dates array
+const EVENT_NAME = ''; // Name for multi-day event
+const PREDEFINED_EVENT_DATE = ''; // Leave empty when using multi-day
+
+// Location Configuration
+const EVENT_LOCATIONS = [
+    { id: 'main-hall', name: 'Main Concert Hall', capacity: 500 },
+    { id: 'studio-a', name: 'Studio A', capacity: 100 },
+    { id: 'outdoor-stage', name: 'Outdoor Stage', capacity: 300 }
+]; // Leave empty array [] for no location selection
+
+// Examples:
+// Single day event:
+// const PREDEFINED_EVENT_DATE = '2024-12-25';
+// const PREDEFINED_EVENT_DATES = [];
+// const EVENT_NAME = 'Christmas Concert';
+// const EVENT_LOCATIONS = [{ id: 'main-hall', name: 'Main Concert Hall', capacity: 500 }];
+
+// Multi-day event:
+// const PREDEFINED_EVENT_DATE = '';
+// const PREDEFINED_EVENT_DATES = ['2024-06-10', '2024-06-11', '2024-06-12'];
+// const EVENT_NAME = 'Annual Conference 2024';
+// const EVENT_LOCATIONS = [
+//     { id: 'room-a', name: 'Conference Room A', capacity: 200 },
+//     { id: 'room-b', name: 'Conference Room B', capacity: 150 },
+//     { id: 'main-auditorium', name: 'Main Auditorium', capacity: 800 }
+// ];
 // Global variables
 let selectedSeats = [];
 let currentSession = '';
 let currentDate = '';
-let seatStatus = {}; // Store seat status for different sessions and dates
+let currentLocation = '';
+let seatStatus = {}; // Store seat status for different sessions, dates, and locations
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     generateSeatGrid();
+    setupLocationSelector();
     setMinDate();
     loadSeatData();
 });
 
-// Set minimum date to today
+// Set minimum date to today or use predefined event date(s)
 function setMinDate() {
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('bookingDate').value = today;
-    document.getElementById('bookingDate').min = today;
+    const bookingDateElement = document.getElementById('bookingDate');
+    
+    // Check for multi-day event first
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
+        // Multi-day event configuration
+        const sortedDates = [...PREDEFINED_EVENT_DATES].sort();
+        const firstDate = sortedDates[0];
+        const lastDate = sortedDates[sortedDates.length - 1];
+        
+        bookingDateElement.value = firstDate;
+        bookingDateElement.min = firstDate;
+        bookingDateElement.max = lastDate;
+        bookingDateElement.disabled = false; // Enable for multi-day selection
+        bookingDateElement.classList.add('event-enabled');
+        
+        // Update the label to show event name and add styling
+        const dateLabel = document.querySelector('label[for="bookingDate"]');
+        if (dateLabel) {
+            dateLabel.textContent = `Select Event Date:`;
+            dateLabel.classList.add('event-label');
+        }
+        
+        // Add change listener to validate selected date
+        bookingDateElement.addEventListener('change', validateEventDate);
+        
+        // Auto-update seat grid
+        setTimeout(() => {
+            updateSeatGrid();
+        }, 100);
+        
+    } else if (PREDEFINED_EVENT_DATE) {
+        // Single-day event configuration
+        bookingDateElement.value = PREDEFINED_EVENT_DATE;
+        bookingDateElement.min = PREDEFINED_EVENT_DATE;
+        bookingDateElement.max = PREDEFINED_EVENT_DATE;
+        bookingDateElement.disabled = true;
+        bookingDateElement.classList.remove('event-enabled');
+        
+        // Update the label to show event name and add styling
+        const dateLabel = document.querySelector('label[for="bookingDate"]');
+        if (dateLabel) {
+            if (EVENT_NAME) {
+                dateLabel.textContent = `Event Date (${EVENT_NAME}):`;
+            } else {
+                dateLabel.textContent = 'Event Date (Fixed):';
+            }
+            dateLabel.classList.add('event-label');
+        }
+        
+        // Auto-update seat grid if predefined date is set
+        setTimeout(() => {
+            updateSeatGrid();
+        }, 100);
+    } else {
+        // Normal date selection - set minimum to today
+        const today = new Date().toISOString().split('T')[0];
+        bookingDateElement.value = today;
+        bookingDateElement.min = today;
+        bookingDateElement.disabled = false;
+        bookingDateElement.classList.remove('event-enabled');
+        
+        // Reset label styling
+        const dateLabel = document.querySelector('label[for="bookingDate"]');
+        if (dateLabel) {
+            dateLabel.textContent = 'Select Date:';
+            dateLabel.classList.remove('event-label');
+        }
+    }
+}
+
+// Validate selected date for multi-day events
+function validateEventDate() {
+    const bookingDateElement = document.getElementById('bookingDate');
+    const selectedDate = bookingDateElement.value;
+    
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
+        if (!PREDEFINED_EVENT_DATES.includes(selectedDate)) {
+            // Reset to first available date if invalid date selected
+            const sortedDates = [...PREDEFINED_EVENT_DATES].sort();
+            bookingDateElement.value = sortedDates[0];
+            
+            showStatusMessage(`Please select a valid event date. Available dates: ${formatEventDates()}`, 'error');
+            return false;
+        }
+    }
+    
+    // Update seat grid when date changes
+    updateSeatGrid();
+    return true;
+}
+
+// Format event dates for display
+function formatEventDates() {
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
+        const sortedDates = [...PREDEFINED_EVENT_DATES].sort();
+        return sortedDates.map(date => {
+            const dateObj = new Date(date);
+            return dateObj.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }).join(', ');
+    }
+    return '';
 }
 
 // Generate the seat grid
@@ -41,10 +178,74 @@ function generateSeatGrid() {
     }
 }
 
-// Update seat grid based on selected time and date
+// Setup location selector
+function setupLocationSelector() {
+    if (EVENT_LOCATIONS && EVENT_LOCATIONS.length > 0) {
+        // Show location selector if locations are configured
+        const locationContainer = document.querySelector('.location-selector');
+        if (locationContainer) {
+            locationContainer.style.display = 'flex';
+            
+            const locationSelect = document.getElementById('locationSelect');
+            if (locationSelect) {
+                // Clear existing options
+                locationSelect.innerHTML = '<option value="">Choose a location...</option>';
+                
+                // Add location options
+                EVENT_LOCATIONS.forEach(location => {
+                    const option = document.createElement('option');
+                    option.value = location.id;
+                    option.textContent = `${location.name} (${location.capacity} seats)`;
+                    locationSelect.appendChild(option);
+                });
+                
+                // Set first location as default if only one location
+                if (EVENT_LOCATIONS.length === 1) {
+                    locationSelect.value = EVENT_LOCATIONS[0].id;
+                    currentLocation = EVENT_LOCATIONS[0].id;
+                }
+            }
+        }
+    } else {
+        // Hide location selector if no locations configured
+        const locationContainer = document.querySelector('.location-selector');
+        if (locationContainer) {
+            locationContainer.style.display = 'none';
+        }
+    }
+}
+
+// Update seat grid based on selected time, date, and location
 function updateSeatGrid() {
     const timeSlot = document.getElementById('timeSlot').value;
-    const bookingDate = document.getElementById('bookingDate').value;
+    const bookingDateElement = document.getElementById('bookingDate');
+    const bookingDate = bookingDateElement.value;
+    const locationSelect = document.getElementById('locationSelect');
+    const selectedLocation = locationSelect ? locationSelect.value : '';
+
+    // If using predefined dates and no date is set yet, wait for initialization
+    if ((PREDEFINED_EVENT_DATE || (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0)) && !bookingDate) {
+        return;
+    }
+
+    // For multi-day events, validate the selected date
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0 && bookingDate) {
+        if (!PREDEFINED_EVENT_DATES.includes(bookingDate)) {
+            showStatusMessage(`Invalid date selected. Please choose from: ${formatEventDates()}`, 'error');
+            return;
+        }
+    }
+
+    // Check if location is required but not selected
+    if (EVENT_LOCATIONS && EVENT_LOCATIONS.length > 1 && !selectedLocation) {
+        // Disable all seats if location is required but not selected
+        const seats = document.querySelectorAll('.seat');
+        seats.forEach(seat => {
+            seat.className = 'seat disabled';
+        });
+        hideBookingForm();
+        return;
+    }
 
     if (!timeSlot || !bookingDate) {
         // Disable all seats if no time slot or date is selected
@@ -58,13 +259,14 @@ function updateSeatGrid() {
 
     currentSession = timeSlot;
     currentDate = bookingDate;
+    currentLocation = selectedLocation;
     
-    // Reset selected seats when changing session or date
+    // Reset selected seats when changing session, date, or location
     selectedSeats = [];
     hideBookingForm();
 
-    // Update seat status based on current session and date
-    const sessionKey = `${bookingDate}_${timeSlot}`;
+    // Update seat status based on current session, date, and location
+    const sessionKey = `${bookingDate}_${timeSlot}_${selectedLocation}`;
     const bookedSeats = seatStatus[sessionKey] || [];
 
     const seats = document.querySelectorAll('.seat');
@@ -77,7 +279,34 @@ function updateSeatGrid() {
         }
     });
 
-    showStatusMessage('Seats updated for selected time and date.', 'info');
+    // Create appropriate status message
+    let eventInfo = '';
+    const locationInfo = getLocationInfo(selectedLocation);
+    
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
+        const dateObj = new Date(bookingDate);
+        const formattedDate = dateObj.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric' 
+        });
+        eventInfo = ` for ${EVENT_NAME} (${formattedDate})`;
+    } else if (PREDEFINED_EVENT_DATE) {
+        eventInfo = ` for ${EVENT_NAME}`;
+    }
+    
+    if (locationInfo) {
+        eventInfo += ` at ${locationInfo.name}`;
+    }
+    
+    showStatusMessage(`Seats updated for selected time and date${eventInfo}.`, 'info');
+}
+
+// Get location information by ID
+function getLocationInfo(locationId) {
+    if (!locationId || !EVENT_LOCATIONS || EVENT_LOCATIONS.length === 0) {
+        return null;
+    }
+    return EVENT_LOCATIONS.find(location => location.id === locationId) || null;
 }
 
 // Toggle seat selection
@@ -90,6 +319,12 @@ function toggleSeat(seatId) {
 
     if (!currentSession || !currentDate) {
         showStatusMessage('Please select a time slot and date first.', 'error');
+        return;
+    }
+
+    // Check if location is required but not selected
+    if (EVENT_LOCATIONS && EVENT_LOCATIONS.length > 1 && !currentLocation) {
+        showStatusMessage('Please select a location first.', 'error');
         return;
     }
 
@@ -117,10 +352,22 @@ function showBookingForm() {
     const selectedDate = document.getElementById('selectedDate');
     const selectedTime = document.getElementById('selectedTime');
     const selectedSeatsSpan = document.getElementById('selectedSeats');
+    const selectedLocationSpan = document.getElementById('selectedLocation');
 
     selectedDate.textContent = formatDate(currentDate);
     selectedTime.textContent = currentSession;
     selectedSeatsSpan.textContent = selectedSeats.join(', ');
+    
+    // Update location information if available
+    if (selectedLocationSpan) {
+        const locationInfo = getLocationInfo(currentLocation);
+        if (locationInfo) {
+            selectedLocationSpan.textContent = locationInfo.name;
+            selectedLocationSpan.parentElement.style.display = 'block';
+        } else {
+            selectedLocationSpan.parentElement.style.display = 'none';
+        }
+    }
 
     bookingForm.style.display = 'block';
 }
@@ -173,9 +420,12 @@ async function submitBooking() {
     showStatusMessage('Processing your booking...', 'info');
 
     // Prepare booking data
+    const locationInfo = getLocationInfo(currentLocation);
     const bookingData = {
         date: currentDate,
         timeSlot: currentSession,
+        location: locationInfo ? locationInfo.name : '',
+        locationId: currentLocation || '',
         seats: selectedSeats.join(', '),
         customerName: customerName,
         customerEmail: customerEmail,
@@ -189,8 +439,8 @@ async function submitBooking() {
         const success = await sendToGoogleSheets(bookingData);
         
         if (success) {
-            // Update local seat status
-            const sessionKey = `${currentDate}_${currentSession}`;
+            // Update local seat status (include location in session key)
+            const sessionKey = `${currentDate}_${currentSession}_${currentLocation}`;
             if (!seatStatus[sessionKey]) {
                 seatStatus[sessionKey] = [];
             }
@@ -239,22 +489,97 @@ async function sendToGoogleSheets(bookingData) {
             return true;
         }
 
+        // For local testing, detect if we're on localhost and use alternative method
+        const isLocalhost = window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1' || 
+                           window.location.protocol === 'file:';
+
+        if (isLocalhost) {
+            console.warn('Running on localhost - CORS may be blocked. Using fallback method.');
+            
+            // Try using a form submission approach for localhost
+            const success = await submitViaForm(bookingData);
+            if (success) {
+                return true;
+            }
+            
+            // If form method fails, fall back to localStorage
+            console.log('Form submission failed, using localStorage fallback');
+            const bookings = JSON.parse(localStorage.getItem('bookings') || '[]');
+            bookings.push(bookingData);
+            localStorage.setItem('bookings', JSON.stringify(bookings));
+            
+            showStatusMessage('Booking saved locally. Deploy to a web server for Google Sheets integration.', 'info');
+            return true;
+        }
+
+        // For production, use normal fetch
         const response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
+            mode: 'no-cors', // This bypasses CORS but limits response access
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(bookingData)
         });
 
-        if (response.ok) {
-            const result = await response.json();
-            return result.success;
-        } else {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        // With no-cors mode, we can't read the response, so assume success
+        // You'll need to check your Google Sheet manually to verify
+        console.log('Data sent to Google Sheets (no-cors mode)');
+        return true;
+
     } catch (error) {
         console.error('Error sending to Google Sheets:', error);
+        
+        // Fallback to localStorage for any error
+        const bookings = JSON.parse(localStorage.getItem('bookings') || '[]');
+        bookings.push(bookingData);
+        localStorage.setItem('bookings', JSON.stringify(bookings));
+        
+        showStatusMessage('Booking saved locally due to connection issue.', 'info');
+        return true;
+    }
+}
+
+// Alternative form submission method for localhost testing
+async function submitViaForm(bookingData) {
+    try {
+        // Create a hidden form
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = GOOGLE_SCRIPT_URL;
+        form.style.display = 'none';
+        
+        // Add form data
+        Object.keys(bookingData).forEach(key => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = key;
+            input.value = bookingData[key];
+            form.appendChild(input);
+        });
+        
+        // Create hidden iframe for form submission
+        const iframe = document.createElement('iframe');
+        iframe.name = 'hiddenFrame';
+        iframe.style.display = 'none';
+        form.target = 'hiddenFrame';
+        
+        document.body.appendChild(iframe);
+        document.body.appendChild(form);
+        
+        // Submit form
+        form.submit();
+        
+        // Clean up after 2 seconds
+        setTimeout(() => {
+            document.body.removeChild(form);
+            document.body.removeChild(iframe);
+        }, 2000);
+        
+        return true;
+    } catch (error) {
+        console.error('Form submission failed:', error);
         return false;
     }
 }
@@ -391,3 +716,180 @@ document.addEventListener('keydown', function(event) {
 // document.addEventListener('DOMContentLoaded', function() {
 //     setTimeout(addRefreshButton, 100);
 // });
+
+// Helper function to set predefined event date (for easy configuration)
+function setPredefinedEventDate(dateString, eventName = 'Special Event') {
+    // This function can be called from browser console to quickly set event date
+    // Example: setPredefinedEventDate('2024-12-25', 'Christmas Concert')
+    console.log(`Setting predefined event date to: ${dateString} (${eventName})`);
+    console.log('Please update the PREDEFINED_EVENT_DATE and EVENT_NAME constants in the script and reload the page.');
+}
+
+// Helper function to set predefined multi-day event dates
+function setPredefinedEventDates(datesArray, eventName = 'Multi-Day Event') {
+    // This function can be called from browser console to quickly set multi-day event
+    // Example: setPredefinedEventDates(['2024-12-25', '2024-12-26', '2024-12-27'], 'Christmas Festival')
+    console.log(`Setting predefined event dates to: ${datesArray.join(', ')} (${eventName})`);
+    console.log('Please update the PREDEFINED_EVENT_DATES and EVENT_NAME constants in the script and reload the page.');
+    console.log('Also set PREDEFINED_EVENT_DATE to empty string when using multi-day events.');
+}
+
+// Helper function to set event locations
+function setEventLocations(locationsArray) {
+    // This function can be called from browser console to quickly set locations
+    // Example: setEventLocations([
+    //   { id: 'main-hall', name: 'Main Concert Hall', capacity: 500 },
+    //   { id: 'studio-a', name: 'Studio A', capacity: 100 }
+    // ])
+    console.log('Setting event locations to:', locationsArray);
+    console.log('Please update the EVENT_LOCATIONS constant in the script and reload the page.');
+}
+
+// Utility function to get formatted date for current selection
+function getCurrentSelectionInfo() {
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
+        return {
+            date: document.getElementById('bookingDate').value,
+            eventName: EVENT_NAME,
+            isPredefined: true,
+            isMultiDay: true,
+            availableDates: PREDEFINED_EVENT_DATES
+        };
+    } else if (PREDEFINED_EVENT_DATE) {
+        return {
+            date: PREDEFINED_EVENT_DATE,
+            eventName: EVENT_NAME,
+            isPredefined: true,
+            isMultiDay: false
+        };
+    }
+    return {
+        date: document.getElementById('bookingDate').value,
+        eventName: null,
+        isPredefined: false,
+        isMultiDay: false
+    };
+}
+
+// Get event type information
+// Sync booked seats from Google Sheets
+async function syncBookedSeatsFromGoogleSheets(date, timeSlot, locationId) {
+    try {
+        // Only sync if Google Apps Script URL is configured
+        if (GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
+            return [];
+        }
+
+        // For localhost, skip sync to avoid CORS issues
+        const isLocalhost = window.location.hostname === 'localhost' || 
+                           window.location.hostname === '127.0.0.1' || 
+                           window.location.protocol === 'file:';
+
+        if (isLocalhost) {
+            console.log('Localhost detected - skipping Google Sheets sync');
+            return [];
+        }
+
+        const url = `${GOOGLE_SCRIPT_URL}?action=getBookedSeats&date=${encodeURIComponent(date)}&timeSlot=${encodeURIComponent(timeSlot)}&locationId=${encodeURIComponent(locationId)}`;
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'cors'
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+                return result.bookedSeats || [];
+            }
+        }
+        
+        return [];
+    } catch (error) {
+        console.error('Error syncing booked seats from Google Sheets:', error);
+        return [];
+    }
+}
+
+// Enhanced updateSeatGrid with Google Sheets sync
+async function updateSeatGridWithSync() {
+    if (!currentDate || !currentSession) {
+        return;
+    }
+
+    try {
+        // Show loading indicator
+        showStatusMessage('Loading seat availability...', 'info');
+
+        // Sync booked seats from Google Sheets
+        const syncedBookedSeats = await syncBookedSeatsFromGoogleSheets(currentDate, currentSession, currentLocation);
+        
+        // Merge with local data
+        const sessionKey = `${currentDate}_${currentSession}_${currentLocation}`;
+        const localBookedSeats = seatStatus[sessionKey] || [];
+        
+        // Combine and deduplicate
+        const allBookedSeats = [...new Set([...localBookedSeats, ...syncedBookedSeats])];
+        
+        // Update local storage
+        seatStatus[sessionKey] = allBookedSeats;
+        saveSeatData();
+
+        // Update seat grid display
+        updateSeatGrid();
+        
+        // Clear loading message
+        document.getElementById('statusMessage').textContent = '';
+        
+        if (syncedBookedSeats.length > 0) {
+            console.log(`Synced ${syncedBookedSeats.length} booked seats from Google Sheets`);
+        }
+        
+    } catch (error) {
+        console.error('Error updating seat grid with sync:', error);
+        updateSeatGrid(); // Fallback to local data
+        document.getElementById('statusMessage').textContent = '';
+    }
+}
+
+// Call this when date, time, or location changes
+function handleSelectionChange() {
+    updateSeatGridWithSync();
+}
+
+function getEventTypeInfo() {
+    if (PREDEFINED_EVENT_DATES && PREDEFINED_EVENT_DATES.length > 0) {
+        return {
+            type: 'multi-day',
+            name: EVENT_NAME,
+            dates: PREDEFINED_EVENT_DATES,
+            totalDays: PREDEFINED_EVENT_DATES.length,
+            locations: EVENT_LOCATIONS || [],
+            hasLocations: EVENT_LOCATIONS && EVENT_LOCATIONS.length > 0
+        };
+    } else if (PREDEFINED_EVENT_DATE) {
+        return {
+            type: 'single-day',
+            name: EVENT_NAME,
+            date: PREDEFINED_EVENT_DATE,
+            locations: EVENT_LOCATIONS || [],
+            hasLocations: EVENT_LOCATIONS && EVENT_LOCATIONS.length > 0
+        };
+    }
+    return {
+        type: 'normal',
+        name: null,
+        locations: EVENT_LOCATIONS || [],
+        hasLocations: EVENT_LOCATIONS && EVENT_LOCATIONS.length > 0
+    };
+}
+
+// Get current booking session key
+function getCurrentSessionKey() {
+    return `${currentDate}_${currentSession}_${currentLocation}`;
+}
+
+// Get available locations
+function getAvailableLocations() {
+    return EVENT_LOCATIONS || [];
+}

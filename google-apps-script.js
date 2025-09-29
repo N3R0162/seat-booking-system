@@ -19,26 +19,36 @@ function doPost(e) {
     // Ensure headers exist
     ensureHeaders(sheet);
     
-    // Add the booking data
+    // Generate a unique booking ID
+    const bookingId = 'BK' + Date.now() + Math.random().toString(36).substr(2, 5).toUpperCase();
+    
+    // Add the booking data with the new structure
     const row = [
-      new Date(data.timestamp),
-      data.date,
-      data.timeSlot,
-      data.seats,
-      data.totalSeats,
-      data.customerName,
-      data.customerEmail,
-      data.customerPhone,
-      'CONFIRMED'
+      new Date(data.timestamp),    // Timestamp
+      data.customerName,           // Customer Name
+      data.customerEmail,          // Customer Email
+      data.customerPhone,          // Customer Phone
+      data.date,                   // Event Date
+      data.timeSlot,              // Time Slot
+      data.location,              // Location Name
+      data.locationId,            // Location ID
+      data.seats,                 // Selected Seats
+      data.totalSeats,            // Total Seats
+      bookingId,                  // Booking ID
+      'CONFIRMED'                 // Status
     ];
     
     sheet.appendRow(row);
     
     // Send confirmation email (optional)
-    sendConfirmationEmail(data);
+    sendConfirmationEmail(data, bookingId);
     
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, message: 'Booking saved successfully' }))
+      .createTextOutput(JSON.stringify({ 
+        success: true, 
+        bookingId: bookingId,
+        message: 'Booking saved successfully' 
+      }))
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (error) {
@@ -74,6 +84,21 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
     
+    if (action === 'getBookedSeats') {
+      const date = e.parameter.date;
+      const timeSlot = e.parameter.timeSlot;
+      const locationId = e.parameter.locationId;
+      
+      const bookedSeats = getBookedSeats(date, timeSlot, locationId);
+      
+      return ContentService
+        .createTextOutput(JSON.stringify({ 
+          success: true, 
+          bookedSeats: bookedSeats 
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
     return ContentService
       .createTextOutput(JSON.stringify({ success: false, error: 'Invalid action' }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -105,13 +130,16 @@ function getOrCreateSpreadsheet() {
 function ensureHeaders(sheet) {
   const headers = [
     'Timestamp',
-    'Date',
-    'Time Slot',
-    'Seats',
-    'Total Seats',
     'Customer Name',
     'Customer Email',
     'Customer Phone',
+    'Event Date',
+    'Time Slot',
+    'Location',
+    'Location ID',
+    'Selected Seats',
+    'Total Seats',
+    'Booking ID',
     'Status'
   ];
   
@@ -126,40 +154,92 @@ function ensureHeaders(sheet) {
     // Format headers
     const headerRange = sheet.getRange(1, 1, 1, headers.length);
     headerRange.setFontWeight('bold');
-    headerRange.setBackground('#4CAF50');
+    headerRange.setBackground('#667eea');
     headerRange.setFontColor('white');
+    
+    // Auto-resize columns
+    sheet.autoResizeColumns(1, headers.length);
   }
 }
 
-function sendConfirmationEmail(data) {
+function getBookedSeats(date, timeSlot, locationId) {
   try {
-    const subject = 'Booking Confirmation - Seat Booking System';
+    const spreadsheet = getOrCreateSpreadsheet();
+    const sheet = spreadsheet.getActiveSheet();
+    
+    const data = sheet.getDataRange().getValues();
+    const rows = data.slice(1); // Exclude headers
+    
+    const bookedSeats = [];
+    
+    rows.forEach(row => {
+      const rowDate = row[4]; // Event Date column
+      const rowTimeSlot = row[5]; // Time Slot column
+      const rowLocationId = row[7]; // Location ID column
+      const rowSeats = row[8]; // Selected Seats column
+      const rowStatus = row[11]; // Status column
+      
+      // Convert date to string format for comparison
+      const dateStr = rowDate instanceof Date ? 
+        rowDate.toISOString().split('T')[0] : 
+        rowDate;
+      
+      if (dateStr === date && 
+          rowTimeSlot === timeSlot && 
+          rowLocationId === locationId && 
+          rowStatus === 'CONFIRMED') {
+        
+        // Parse the seats string (e.g., "A1, A2, B3")
+        if (rowSeats) {
+          const seats = rowSeats.split(',').map(seat => seat.trim());
+          bookedSeats.push(...seats);
+        }
+      }
+    });
+    
+    return bookedSeats;
+    
+  } catch (error) {
+    console.error('Error getting booked seats:', error);
+    return [];
+  }
+}
+
+function sendConfirmationEmail(data, bookingId) {
+  try {
+    const subject = `Booking Confirmation - ${data.location || 'Event'} (${bookingId})`;
     const body = `
 Dear ${data.customerName},
 
 Your booking has been confirmed! Here are the details:
 
+📋 Booking ID: ${bookingId}
 📅 Date: ${new Date(data.date).toLocaleDateString()}
 ⏰ Time: ${data.timeSlot}
+📍 Location: ${data.location || 'Main Venue'}
 💺 Seats: ${data.seats}
+👤 Total Seats: ${data.totalSeats}
+
+Contact Information:
 📧 Email: ${data.customerEmail}
 📱 Phone: ${data.customerPhone}
 
-Booking ID: ${Utilities.getUuid().substring(0, 8).toUpperCase()}
 Booking Time: ${new Date(data.timestamp).toLocaleString()}
 
 Please arrive 15 minutes before your session starts.
+Keep this booking ID for your records: ${bookingId}
 
 Thank you for your booking!
 
 Best regards,
-Seat Booking System Team
+Event Management Team
     `;
     
     MailApp.sendEmail(data.customerEmail, subject, body);
     
-    // Also send a copy to admin (optional)
-    // MailApp.sendEmail('admin@example.com', subject, body);
+    // Optional: Send a copy to admin
+    // const adminEmail = 'admin@yourdomain.com';
+    // MailApp.sendEmail(adminEmail, `New Booking: ${bookingId}`, body);
     
   } catch (error) {
     console.error('Error sending confirmation email:', error);
@@ -169,8 +249,10 @@ Seat Booking System Team
 // Test function to verify the setup
 function testBooking() {
   const testData = {
-    date: '2024-01-15',
+    date: '2025-10-01',
     timeSlot: '09:00-10:00',
+    location: 'Main Concert Hall',
+    locationId: 'main-hall',
     seats: 'A1, A2',
     customerName: 'John Doe',
     customerEmail: 'john@example.com',
@@ -213,17 +295,38 @@ function getBookingStats() {
   
   const stats = {
     totalBookings: rows.length,
-    totalSeats: rows.reduce((sum, row) => sum + (row[4] || 0), 0),
-    uniqueCustomers: new Set(rows.map(row => row[6])).size,
-    timeSlots: {}
+    totalSeats: rows.reduce((sum, row) => sum + (row[9] || 0), 0), // Total Seats column
+    uniqueCustomers: new Set(rows.map(row => row[2])).size, // Customer Email column
+    locationStats: {},
+    timeSlotStats: {},
+    dateStats: {}
   };
   
   rows.forEach(row => {
-    const timeSlot = row[2];
-    if (stats.timeSlots[timeSlot]) {
-      stats.timeSlots[timeSlot]++;
+    const location = row[6];
+    const timeSlot = row[5];
+    const date = row[4];
+    
+    // Location statistics
+    if (stats.locationStats[location]) {
+      stats.locationStats[location]++;
     } else {
-      stats.timeSlots[timeSlot] = 1;
+      stats.locationStats[location] = 1;
+    }
+    
+    // Time slot statistics
+    if (stats.timeSlotStats[timeSlot]) {
+      stats.timeSlotStats[timeSlot]++;
+    } else {
+      stats.timeSlotStats[timeSlot] = 1;
+    }
+    
+    // Date statistics
+    const dateStr = date instanceof Date ? date.toISOString().split('T')[0] : date;
+    if (stats.dateStats[dateStr]) {
+      stats.dateStats[dateStr]++;
+    } else {
+      stats.dateStats[dateStr] = 1;
     }
   });
   
