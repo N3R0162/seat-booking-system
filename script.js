@@ -10,7 +10,7 @@ const MAX_SEATS_PER_ROW = 10;
 // const EVENT_NAME = 'Spring Musical Performance';
 
 // For multi-day events:
-const PREDEFINED_EVENT_DATES = ['2025-10-01', '2025-10-02', '2025-10-03', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-07', '2025-10-08', '2025-10-09', '']; // Multiple dates array
+const PREDEFINED_EVENT_DATES = ['2025-09-30', '2025-10-01', '2025-10-02', '2025-10-03', '2025-10-04', '2025-10-05', '2025-10-06', '2025-10-07', '2025-10-08', '2025-10-09']; // Multiple dates array
 const EVENT_NAME = ''; // Name for multi-day event
 const PREDEFINED_EVENT_DATE = ''; // Leave empty when using multi-day
 
