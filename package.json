@@ -1,0 +1,19 @@
+{
+  "name": "seat-booking-system",
+  "version": "1.0.0",
+  "description": "A simple, static seat booking system with a configurable seat layout, session/date selectors, and optional SheetDB-backed persistence.",
+  "main": "config.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/N3R0162/seat-booking-system.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/N3R0162/seat-booking-system/issues"
+  },
+  "homepage": "https://github.com/N3R0162/seat-booking-system#readme"
+}

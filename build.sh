@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "[build] Starting config generation"
+
 TEMPLATE_FILE="config.template.js"
 OUTPUT_FILE="config.js"
-
-if [[ ! -f "${TEMPLATE_FILE}" ]]; then
-  echo "Template file ${TEMPLATE_FILE} not found."
-  exit 1
-fi
 
 : "${SHEETDB_API_URL:=}"
 : "${SHEETDB_BEARER_TOKEN:=}"
 
-python3 <<'PY'
-import os
-from pathlib import Path
+# Escape backslashes and double quotes for safe JS string embedding
+escape() {
+  local v="${1//\\/\\\\}"
+  v="${v//\"/\\\"}"
+  printf '%s' "$v"
+}
 
-template_path = Path("config.template.js")
-output_path = Path("config.js")
+API_URL_ESCAPED="$(escape "${SHEETDB_API_URL}")"
+TOKEN_ESCAPED="$(escape "${SHEETDB_BEARER_TOKEN}")"
 
-api_url = os.environ.get("SHEETDB_API_URL", "")
-api_token = os.environ.get("SHEETDB_BEARER_TOKEN", "")
+cat > "${OUTPUT_FILE}" <<EOF
+window.__SEAT_BOOKING_CONFIG__ = {
+  SHEETDB_API_URL: "${API_URL_ESCAPED}",
+  SHEETDB_BEARER_TOKEN: "${TOKEN_ESCAPED}"
+};
+EOF
 
-content = template_path.read_text()
-content = content.replace("__SHEETDB_API_URL__", api_url)
-content = content.replace("__SHEETDB_BEARER_TOKEN__", api_token)
-
-output_path.write_text(content)
-
-print(f"Generated {output_path} with provided environment variables.")
-PY
+echo "[build] Generated ${OUTPUT_FILE}"
+if [[ -z "${SHEETDB_API_URL}" ]]; then
+  echo "[build][warn] SHEETDB_API_URL is empty. The app will run in 'no remote persistence' mode."
+fi
+echo "[build] Done."
