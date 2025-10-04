@@ -2,6 +2,10 @@
 const ROWS = 10;
 const SEATS_PER_ROW = 1;
 
+// SheetDB:
+const SHEETDB_API_URL = 'https://sheetdb.io/api/v1/ze263dpdfnt73'; 
+const SHEETDB_BEARER_TOKEN = 'uv0mwwkgqtjvcxbes8xg355iogkvxiqoqki6luri'; 
+
 // Event Configuration
 // For single-day events:
 // const PREDEFINED_EVENT_DATE = '2024-03-15'; // Single date
@@ -428,68 +432,94 @@ async function submitBooking() {
     const customerEmail = document.getElementById('customerEmail').value.trim();
     const customerPhone = document.getElementById('customerPhone').value.trim();
 
-    // Validation
     if (!customerName || !customerEmail || !customerPhone) {
         showStatusMessage('Please fill in all fields.', 'error');
         return;
     }
-
     if (!validateEmail(customerEmail)) {
         showStatusMessage('Please enter a valid email address.', 'error');
         return;
     }
-
     if (selectedSeats.length === 0) {
         showStatusMessage('Please select at least one seat.', 'error');
         return;
     }
 
-    // Show loading
     showStatusMessage('Processing your booking...', 'info');
 
-    // Local booking data
     const bookingData = {
+        timestamp: new Date().toISOString(),
         date: currentDate,
         timeSlot: currentSession,
-        location: getLocationInfo(currentLocation)?.name || '',
         locationId: currentLocation || '',
+        location: getLocationInfo(currentLocation)?.name || '',
         seats: selectedSeats.join(', '),
         customerName,
         customerEmail,
         customerPhone,
-        timestamp: new Date().toISOString(),
         totalSeats: selectedSeats.length
     };
 
     try {
-        // Update local seat status
         const sessionKey = `${currentDate}_${currentSession}_${currentLocation}`;
-        if (!seatStatus[sessionKey]) {
-            seatStatus[sessionKey] = [];
-        }
+        if (!seatStatus[sessionKey]) seatStatus[sessionKey] = [];
         seatStatus[sessionKey].push(...selectedSeats);
-        // Remove duplicates just in case
         seatStatus[sessionKey] = [...new Set(seatStatus[sessionKey])];
-
-        // Save to local storage
         saveSeatData();
 
-        // Update UI
+        // Try remote sync (non-blocking for local success)
+        const remoteOk = await sendBookingToSheet(bookingData);
+
         selectedSeats.forEach(seatId => {
             const seat = document.getElementById(seatId);
             seat.className = 'seat booked';
         });
-
         selectedSeats = [];
         hideBookingForm();
 
-        showStatusMessage(
-            `Booking saved locally. Seats: ${bookingData.seats}`,
-            'success'
-        );
+        if (remoteOk) {
+            showStatusMessage(`Booking saved & synced. Seats: ${bookingData.seats}`, 'success');
+        } else {
+            showStatusMessage(`Booking saved locally (sync failed). Seats: ${bookingData.seats}`, 'error');
+        }
     } catch (error) {
         console.error('Booking error:', error);
         showStatusMessage('Booking failed. Please try again.', 'error');
+    }
+}
+
+async function sendBookingToSheet(booking) {
+    if (!SHEETDB_API_URL) return false;
+
+    const row = {
+        timestamp: booking.timestamp,
+        date: booking.date,
+        timeSlot: booking.timeSlot,
+        locationId: booking.locationId,
+        location: booking.location,
+        seats: booking.seats,
+        customerName: booking.customerName,
+        customerEmail: booking.customerEmail,
+        customerPhone: booking.customerPhone
+    };
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (SHEETDB_BEARER_TOKEN) headers['Authorization'] = `Bearer ${SHEETDB_BEARER_TOKEN}`;
+
+    try {
+        const res = await fetch(SHEETDB_API_URL, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ data: [row] })
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || 'SheetDB error');
+        }
+        return true;
+    } catch (e) {
+        console.error('SheetDB POST failed:', e);
+        return false;
     }
 }
 
