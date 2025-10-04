@@ -51,6 +51,14 @@
                                 </select>
                             </div>
 
+                            <!-- Refresh Button -->
+                            <div class="refresh-controls">
+                                <button id="refreshBtn" onclick="manualRefresh()" class="refresh-btn" title="Refresh seat data from server">
+                                    Refresh
+                                </button>
+                                <span id="syncStatus" class="sync-status"></span>
+                            </div>
+
                         </div>
                         
                         <!-- Screen and Seat Selection -->
@@ -114,6 +122,13 @@
         <div id="statusMessage" class="status-message"></div>
     </div>
 
+    <script src="config.js"></script>
+    <script>
+        window.__SEAT_BOOKING_CONFIG__ = window.__SEAT_BOOKING_CONFIG__ || {
+            SHEETDB_API_URL: '',
+            SHEETDB_BEARER_TOKEN: ''
+        };
+    </script>
     <script src="script.js"></script>
 </body>
 </html>

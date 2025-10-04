@@ -2,9 +2,9 @@
 const ROWS = 10;
 const SEATS_PER_ROW = 1;
 
-// SheetDB:
-const SHEETDB_API_URL = 'https://sheetdb.io/api/v1/ze263dpdfnt73'; 
-const SHEETDB_BEARER_TOKEN = 'uv0mwwkgqtjvcxbes8xg355iogkvxiqoqki6luri'; 
+// SheetDB configuration injected via build-time environment variables
+const SHEETDB_API_URL = (window.__SEAT_BOOKING_CONFIG__ && window.__SEAT_BOOKING_CONFIG__.SHEETDB_API_URL) || '';
+const SHEETDB_BEARER_TOKEN = (window.__SEAT_BOOKING_CONFIG__ && window.__SEAT_BOOKING_CONFIG__.SHEETDB_BEARER_TOKEN) || '';
 
 // Event Configuration
 // For single-day events:
@@ -27,18 +27,24 @@ let selectedSeats = [];
 let currentSession = '';
 let currentDate = '';
 let currentLocation = '';
-let seatStatus = {}; // Store seat status for different sessions, dates, and locations (local only)
+let seatStatus = {}; // In-memory seat status map (rebuilt from remote API)
+let isSyncing = false; // Track sync state
+let pollInterval = null; // For periodic polling
+let lastSyncTime = 0; // Track last sync timestamp
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     generateSeatGrid();
     setupLocationSelector();
     setMinDate();
-
-    // Load local data first as source of truth
-    loadSeatData();
-    // Update grid for initial selection (if any)
-    setTimeout(updateSeatGrid, 100);
+    // Initial empty render
+    setTimeout(updateSeatGrid, 50);
+    // Fetch current bookings from API
+    refreshSeatStatusFromAPI();
+    // Start periodic polling every 45 seconds
+    startPeriodicPolling();
+    // Setup real-time validation
+    setupInputValidation();
 });
 
 // Set minimum date to today or use predefined event date(s)
@@ -257,7 +263,7 @@ function setupLocationSelector() {
     }
 }
 
-// Update seat grid based on selected time, date, and location (local only)
+// Update seat grid based on selected time, date, and location (reflects in-memory map built from API data)
 function updateSeatGrid() {
     const timeSlot = document.getElementById('timeSlot').value;
     const bookingDateElement = document.getElementById('bookingDate');
@@ -350,6 +356,12 @@ function getLocationInfo(locationId) {
 function toggleSeat(seatId) {
     const seat = document.getElementById(seatId);
 
+    // Block interaction during sync
+    if (isSyncing) {
+        showStatusMessage('Please wait while seat data is being updated...', 'info');
+        return;
+    }
+
     if (seat.classList.contains('booked') || seat.classList.contains('disabled')) {
         return;
     }
@@ -426,68 +438,91 @@ function formatDate(dateString) {
     });
 }
 
-// Submit booking (local only)
+// Submit booking (API-driven)
 async function submitBooking() {
     const customerName = document.getElementById('customerName').value.trim();
     const customerEmail = document.getElementById('customerEmail').value.trim();
     const customerPhone = document.getElementById('customerPhone').value.trim();
 
-    if (!customerName || !customerEmail || !customerPhone) {
-        showStatusMessage('Please fill in all fields.', 'error');
+    // Validate all fields with visual feedback
+    const validation = validateFormFields();
+    
+    if (!validation.isValid) {
+        if (!validation.nameValid) {
+            showStatusMessage('Please enter a valid name.', 'error');
+        } else if (!validation.emailValid) {
+            showStatusMessage('Please enter a valid email address.', 'error');
+        } else if (!validation.phoneValid) {
+            showStatusMessage('Please enter a valid 10-digit phone number.', 'error');
+        }
         return;
     }
-    if (!validateEmail(customerEmail)) {
-        showStatusMessage('Please enter a valid email address.', 'error');
-        return;
-    }
+    
     if (selectedSeats.length === 0) {
         showStatusMessage('Please select at least one seat.', 'error');
         return;
     }
 
-    showStatusMessage('Processing your booking...', 'info');
+    // Prevent submission during sync
+    if (isSyncing) {
+        showStatusMessage('Please wait while seat data is being updated...', 'info');
+        return;
+    }
 
-    const bookingData = {
-        timestamp: new Date().toISOString(),
-        date: currentDate,
-        timeSlot: currentSession,
-        locationId: currentLocation || '',
-        location: getLocationInfo(currentLocation)?.name || '',
-        seats: selectedSeats.join(', '),
-        customerName,
-        customerEmail,
-        customerPhone,
-        totalSeats: selectedSeats.length
-    };
+    // Store selected seats before any async operations
+    const seatsToBook = [...selectedSeats]; // Create a copy
+
+    showStatusMessage('Checking seat availability...', 'info');
 
     try {
+        // First, refresh seat status to check for conflicts (preserve selection)
+        await refreshSeatStatusFromAPI(true, true); // Silent refresh + preserve selection
+
+        // Check if any selected seats are now booked (conflict detection)
         const sessionKey = `${currentDate}_${currentSession}_${currentLocation}`;
-        if (!seatStatus[sessionKey]) seatStatus[sessionKey] = [];
-        seatStatus[sessionKey].push(...selectedSeats);
-        seatStatus[sessionKey] = [...new Set(seatStatus[sessionKey])];
-        saveSeatData();
+        const currentlyBookedSeats = seatStatus[sessionKey] || [];
+        const conflictSeats = seatsToBook.filter(seat => currentlyBookedSeats.includes(seat));
 
-        // Try remote sync (non-blocking for local success)
+        if (conflictSeats.length > 0) {
+            // Clear conflicted selections
+            selectedSeats = selectedSeats.filter(seat => !conflictSeats.includes(seat));
+            hideBookingForm();
+            updateSeatGrid();
+            showStatusMessage(`Seats ${conflictSeats.join(', ')} were just booked by someone else. Please select different seats.`, 'error');
+            return;
+        }
+
+        showStatusMessage('Processing your booking...', 'info');
+
+        // Use the stored seats copy for booking data
+        const bookingData = {
+            timestamp: new Date().toISOString(),
+            date: currentDate,
+            timeSlot: currentSession,
+            locationId: currentLocation || '',
+            location: getLocationInfo(currentLocation)?.name || '',
+            seats: seatsToBook.join(', '), // Use the copy
+            customerName,
+            customerEmail,
+            customerPhone: String(customerPhone), // Ensure phone is sent as string
+            totalSeats: seatsToBook.length // Use the copy
+        };
+
+        // Remote first approach
         const remoteOk = await sendBookingToSheet(bookingData);
-
-        selectedSeats.forEach(seatId => {
-            const seat = document.getElementById(seatId);
-            seat.className = 'seat booked';
-        });
-        selectedSeats = [];
-        hideBookingForm();
-
         if (remoteOk) {
+            selectedSeats = [];
+            hideBookingForm();
+            await refreshSeatStatusFromAPI();
             showStatusMessage(`Booking saved & synced. Seats: ${bookingData.seats}`, 'success');
         } else {
-            showStatusMessage(`Booking saved locally (sync failed). Seats: ${bookingData.seats}`, 'error');
+            showStatusMessage('Booking failed to sync. Please try again.', 'error');
         }
     } catch (error) {
         console.error('Booking error:', error);
         showStatusMessage('Booking failed. Please try again.', 'error');
     }
 }
-
 async function sendBookingToSheet(booking) {
     if (!SHEETDB_API_URL) return false;
 
@@ -523,6 +558,95 @@ async function sendBookingToSheet(booking) {
     }
 }
 
+async function fetchBookingsFromSheet() {
+    if (!SHEETDB_API_URL) return [];
+
+    const headers = {};
+    if (SHEETDB_BEARER_TOKEN) headers['Authorization'] = `Bearer ${SHEETDB_BEARER_TOKEN}`;
+
+    try {
+        const res = await fetch(SHEETDB_API_URL, { headers });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || 'SheetDB fetch error');
+        }
+        const data = await res.json();
+        return data;
+    } catch (e) {
+        console.error('SheetDB fetch failed:', e);
+        return [];
+    }
+}
+
+// Build seat status map from remote booking rows
+function buildSeatStatusFromBookings(bookings) {
+    seatStatus = {};
+    bookings.forEach(row => {
+        const date = row.date || row.Date || row.DATE;
+        const timeSlot = row.timeSlot || row.TimeSlot || row.timeslot || row.session;
+        const locationId = row.locationId || row.location_id || '';
+        const seatsStr = row.seats || row.Seats || row.SEATS;
+        if (!date || !timeSlot || !seatsStr) return;
+        const key = `${date}_${timeSlot}_${locationId}`;
+        const seatsArr = seatsStr.split(',').map(s => s.trim()).filter(Boolean);
+        if (!seatStatus[key]) seatStatus[key] = [];
+        seatStatus[key].push(...seatsArr);
+        seatStatus[key] = [...new Set(seatStatus[key])];
+    });
+}
+
+// Refresh seat status from API and update UI
+async function refreshSeatStatusFromAPI(silent = false, preserveSelection = false) {
+    if (isSyncing) return; // Prevent concurrent syncs
+    
+    isSyncing = true;
+    updateSyncUI('syncing');
+    
+    try {
+        const bookings = await fetchBookingsFromSheet();
+        buildSeatStatusFromBookings(bookings);
+        
+        // Store current selection before updating grid
+        const currentSelection = preserveSelection ? [...selectedSeats] : [];
+        
+        updateSeatGrid();
+        
+        // Restore selection if preserveSelection is true
+        if (preserveSelection && currentSelection.length > 0) {
+            selectedSeats = currentSelection;
+            // Re-apply visual selection to seats
+            currentSelection.forEach(seatId => {
+                const seat = document.getElementById(seatId);
+                if (seat && !seat.classList.contains('booked')) {
+                    seat.className = 'seat selected';
+                }
+            });
+            // Show booking form if seats are selected
+            if (selectedSeats.length > 0) {
+                showBookingForm();
+            }
+        }
+        
+        lastSyncTime = Date.now();
+        
+        if (!silent) {
+            updateSyncUI('success');
+            setTimeout(() => updateSyncUI(''), 3000);
+        } else {
+            updateSyncUI('');
+        }
+    } catch (e) {
+        console.error('Refresh failed', e);
+        updateSyncUI('error');
+        if (!silent) {
+            showStatusMessage('Could not refresh seat data from server.', 'error');
+        }
+        setTimeout(() => updateSyncUI(''), 5000);
+    } finally {
+        isSyncing = false;
+    }
+}
+
 // Cancel booking
 function cancelBooking() {
     selectedSeats.forEach(seatId => {
@@ -532,6 +656,7 @@ function cancelBooking() {
 
     selectedSeats = [];
     hideBookingForm();
+
     showStatusMessage('Booking cancelled.', 'info');
 }
 
@@ -539,6 +664,103 @@ function cancelBooking() {
 function validateEmail(email) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
+}
+
+// Validate phone number (exactly 10 digits)
+function validatePhone(phone) {
+    const phoneRegex = /^\d{10}$/;
+    return phoneRegex.test(phone);
+}
+
+// Validate name (not empty)
+function validateName(name) {
+    return name && name.trim().length > 0;
+}
+
+// Add visual validation feedback to input field
+function setFieldValidation(fieldId, isValid) {
+    const field = document.getElementById(fieldId);
+    if (field) {
+        if (isValid) {
+            field.classList.remove('invalid');
+        } else {
+            field.classList.add('invalid');
+        }
+    }
+}
+
+// Validate all form fields and apply visual feedback
+function validateFormFields() {
+    const customerName = document.getElementById('customerName').value.trim();
+    const customerEmail = document.getElementById('customerEmail').value.trim();
+    const customerPhone = document.getElementById('customerPhone').value.trim();
+
+    const nameValid = validateName(customerName);
+    const emailValid = validateEmail(customerEmail);
+    const phoneValid = validatePhone(customerPhone);
+
+    setFieldValidation('customerName', nameValid);
+    setFieldValidation('customerEmail', emailValid);
+    setFieldValidation('customerPhone', phoneValid);
+
+    return {
+        isValid: nameValid && emailValid && phoneValid,
+        nameValid,
+        emailValid,
+        phoneValid
+    };
+}
+
+// Setup real-time input validation
+function setupInputValidation() {
+    const nameField = document.getElementById('customerName');
+    const emailField = document.getElementById('customerEmail');
+    const phoneField = document.getElementById('customerPhone');
+
+    if (nameField) {
+        nameField.addEventListener('blur', function() {
+            const isValid = validateName(this.value.trim());
+            setFieldValidation('customerName', isValid);
+        });
+        nameField.addEventListener('input', function() {
+            if (this.classList.contains('invalid')) {
+                const isValid = validateName(this.value.trim());
+                if (isValid) {
+                    setFieldValidation('customerName', true);
+                }
+            }
+        });
+    }
+
+    if (emailField) {
+        emailField.addEventListener('blur', function() {
+            const isValid = validateEmail(this.value.trim());
+            setFieldValidation('customerEmail', isValid);
+        });
+        emailField.addEventListener('input', function() {
+            if (this.classList.contains('invalid')) {
+                const isValid = validateEmail(this.value.trim());
+                if (isValid) {
+                    setFieldValidation('customerEmail', true);
+                }
+            }
+        });
+    }
+
+    if (phoneField) {
+        phoneField.addEventListener('blur', function() {
+            const isValid = validatePhone(this.value.trim());
+            setFieldValidation('customerPhone', isValid);
+        });
+        phoneField.addEventListener('input', function() {
+            if (this.classList.contains('invalid')) {
+                const isValid = validatePhone(this.value.trim());
+                if (isValid) {
+                    setFieldValidation('customerPhone', true);
+                }
+            }
+        });
+    }
 }
 
 // Show status message
@@ -555,20 +777,7 @@ function showStatusMessage(message, type) {
     }
 }
 
-// Save seat data to localStorage
-function saveSeatData() {
-    localStorage.setItem('seatStatus', JSON.stringify(seatStatus));
-}
-
-// Load seat data from localStorage
-function loadSeatData() {
-    const savedData = localStorage.getItem('seatStatus');
-    if (savedData) {
-        seatStatus = JSON.parse(savedData);
-    }
-}
-
-// Selection change handler (local only)
+// Selection change handler
 function handleSelectionChange() {
     updateSeatGrid();
 }
@@ -609,6 +818,83 @@ function getCurrentSessionKey() {
 function getAvailableLocations() {
     return EVENT_LOCATIONS || [];
 }
+
+// Update sync UI elements
+function updateSyncUI(state) {
+    const refreshBtn = document.getElementById('refreshBtn');
+    const syncStatus = document.getElementById('syncStatus');
+    
+    if (!refreshBtn || !syncStatus) return;
+    
+    switch (state) {
+        case 'syncing':
+            refreshBtn.disabled = true;
+            refreshBtn.classList.add('syncing');
+            refreshBtn.textContent = '🔄 Syncing...';
+            syncStatus.textContent = 'Syncing...';
+            syncStatus.className = 'sync-status syncing';
+            break;
+        case 'success':
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('syncing');
+            refreshBtn.textContent = 'Refresh';
+            syncStatus.textContent = 'Up to date';
+            syncStatus.className = 'sync-status success';
+            break;
+        case 'error':
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('syncing');
+            refreshBtn.textContent = 'Retry';
+            syncStatus.textContent = 'Sync failed';
+            syncStatus.className = 'sync-status error';
+            break;
+        default:
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('syncing');
+            refreshBtn.textContent = 'Refresh';
+            syncStatus.textContent = '';
+            syncStatus.className = 'sync-status';
+    }
+}
+
+// Manual refresh function
+async function manualRefresh() {
+    if (isSyncing) return;
+    await refreshSeatStatusFromAPI();
+}
+
+// Start periodic polling
+function startPeriodicPolling() {
+    // Clear existing interval if any
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+    
+    // Poll every 45 seconds
+    pollInterval = setInterval(async () => {
+        // Only poll if not currently syncing and if the page is visible
+        if (!isSyncing && !document.hidden) {
+            await refreshSeatStatusFromAPI(true); // Silent refresh
+        }
+    }, 45000);
+}
+
+// Stop polling when page becomes hidden to save resources
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+    } else {
+        // Restart polling when page becomes visible again
+        startPeriodicPolling();
+        // Immediate refresh when coming back to the tab
+        if (!isSyncing) {
+            refreshSeatStatusFromAPI(true);
+        }
+    }
+});
 
 // Keyboard shortcuts: only ESC to cancel (removed refresh and Google sync)
 document.addEventListener('keydown', function(event) {

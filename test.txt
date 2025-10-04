@@ -1,4 +1,0 @@
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"data": [{"timestamp":"2025-10-04T10:00:00Z","date":"2025-10-04","timeSlot":"09:00","locationId":"99","location":"Main Hall","seats":"A1,A2","customerName":"Test User","customerEmail":"test@example.com","customerPhone":"000111222"}]}' \
-  https://sheetdb.io/api/v1/ze263dpdfnt73
