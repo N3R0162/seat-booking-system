@@ -830,7 +830,7 @@ function updateSyncUI(state) {
         case 'syncing':
             refreshBtn.disabled = true;
             refreshBtn.classList.add('syncing');
-            refreshBtn.textContent = '🔄 Syncing...';
+            refreshBtn.textContent = 'Syncing...';
             syncStatus.textContent = 'Syncing...';
             syncStatus.className = 'sync-status syncing';
             break;
