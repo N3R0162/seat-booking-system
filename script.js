@@ -438,6 +438,36 @@ function formatDate(dateString) {
     });
 }
 
+// Convert Google Sheets / Excel serial date (days since 1899-12-30) to ISO yyyy-mm-dd
+function spreadsheetSerialToISO(serial) {
+    const base = new Date(Date.UTC(1899, 11, 30));
+    const ms = serial * 86400000;
+    const d = new Date(base.getTime() + ms);
+    return toISODate(d);
+}
+
+// Format Date to yyyy-mm-dd (UTC)
+function toISODate(d) {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+// Normalize a date value from sheet (serial or ISO)
+function normalizeDateValue(val) {
+    if (val === undefined || val === null || val === '') return '';
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+    if (/^\d{4,6}$/.test(String(val))) {
+        const num = Number(val);
+        if (num > 20000 && num < 100000) return spreadsheetSerialToISO(num);
+    }
+    // Attempt generic parse
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return toISODate(d);
+    return '';
+}
+
 // Submit booking (API-driven)
 async function submitBooking() {
     const customerName = document.getElementById('customerName').value.trim();
@@ -507,7 +537,6 @@ async function submitBooking() {
             customerPhone: String(customerPhone), // Ensure phone is sent as string
             totalSeats: seatsToBook.length // Use the copy
         };
-
         // Remote first approach
         const remoteOk = await sendBookingToSheet(bookingData);
         if (remoteOk) {
@@ -523,19 +552,22 @@ async function submitBooking() {
         showStatusMessage('Booking failed. Please try again.', 'error');
     }
 }
+
 async function sendBookingToSheet(booking) {
     if (!SHEETDB_API_URL) return false;
 
+    // Force text preservation in Google Sheets with leading apostrophe
+    // (It will not display; Sheets stores literal text and keeps leading zeros)
     const row = {
-        timestamp: booking.timestamp,
-        date: booking.date,
+        timestamp: booking.timestamp,              // keep ISO timestamp
+        date: `'${booking.date}`,                  // force literal
         timeSlot: booking.timeSlot,
         locationId: booking.locationId,
         location: booking.location,
         seats: booking.seats,
         customerName: booking.customerName,
         customerEmail: booking.customerEmail,
-        customerPhone: booking.customerPhone
+        customerPhone: `'${booking.customerPhone}` // keep leading zero
     };
 
     const headers = { 'Content-Type': 'application/json' };
@@ -582,7 +614,8 @@ async function fetchBookingsFromSheet() {
 function buildSeatStatusFromBookings(bookings) {
     seatStatus = {};
     bookings.forEach(row => {
-        const date = row.date || row.Date || row.DATE;
+        const rawDate = row.date || row.Date || row.DATE;
+        const date = normalizeDateValue(rawDate);
         const timeSlot = row.timeSlot || row.TimeSlot || row.timeslot || row.session;
         const locationId = row.locationId || row.location_id || '';
         const seatsStr = row.seats || row.Seats || row.SEATS;
