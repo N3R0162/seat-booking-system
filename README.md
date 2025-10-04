@@ -21,7 +21,7 @@ seat-booking-system/
 ├── script.js               # Main JavaScript (loads values from config.js)
 ├── styles.css              # CSS styling
 └── static/…                # Static assets
-
+```
 ## Environment configuration
 
 Sensitive values (such as SheetDB credentials) are injected at build time using environment variables.  The runtime code looks for a `config.js` file that defines `window.__SEAT_BOOKING_CONFIG__`.
