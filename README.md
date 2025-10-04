@@ -39,6 +39,7 @@ Sensitive values (such as SheetDB credentials) are injected at build time using 
 
 ### MyKinsta deployment
 
+```
 1. In MyKinsta, open your static site → **Settings** → **Environment variables**.
 2. Add the following keys (uppercase alphanumerics and underscores only):
 	- `SHEETDB_API_URL` – e.g. `https://sheetdb.io/api/v1/XXXXXXXX`
